@@ -1,4 +1,17 @@
 import os
+
+
+def format_size(num_bytes):
+    """
+    Converts a byte count into a human-readable string, e.g. 1536 -> '1.5 KB'.
+    """
+    size = float(num_bytes)
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if size < 1024 or unit == "TB":
+            return f"{int(size)} {unit}" if unit == "B" else f"{size:.1f} {unit}"
+        size /= 1024
+
+
 def print_tree(node, indent=""):
     """
     Pretty print the tree with sizes.
@@ -10,7 +23,8 @@ def print_tree(node, indent=""):
 
 def validate_fs_tree(node):
     """
-    Validates that the file system tree structure has no cycles and valid sizes.
+    Validates the file system tree: no cycles, no negative sizes, files have
+    no children, and every directory's size equals the sum of its children.
     Raises ValueError if something is wrong.
     """
     seen = set()
@@ -19,14 +33,19 @@ def validate_fs_tree(node):
         if id(n) in seen:
             raise ValueError("Cycle detected in file system!")
         seen.add(id(n))
+        if n.size < 0:
+            raise ValueError(f"Invalid size for: {n.name}")
         if n.is_file:
-            if n.size < 0:
-                raise ValueError(f"Invalid size for file: {n.name}")
+            if n.children:
+                raise ValueError(f"File has children: {n.name}")
         else:
             for child in n.children:
                 dfs(child)
+            if n.size != sum(child.size for child in n.children):
+                raise ValueError(f"Size mismatch for directory: {n.name}")
 
     dfs(node)
+
 
 def search_file(node, name, path="", results=None):
     """
@@ -46,33 +65,7 @@ def search_file(node, name, path="", results=None):
 
     return results
 
-def sort_by_size(node, reverse=True):
-    """
-    Returns all nodes in the file system sorted by size.
-    """
-    result = []
 
-    def dfs(n):
-        result.append((n.name, n.get_size()))
-        for child in n.children:
-            dfs(child)
-
-    dfs(node)
-    result.sort(key=lambda x: x[1], reverse=reverse)
-    return result
-
-def filter_by_size(node, min_size=0, max_size=float('inf')):
-    """
-    Returns a list of files/directories whose size is within the given range.
-    """
-    matches = []
-    if node.get_size() >= min_size and node.get_size() <= max_size:
-        matches.append((node.name, node.get_size()))
-
-    for child in node.children:
-        matches.extend(filter_by_size(child, min_size, max_size))
-    
-    return matches
 def flatten_fs(node, path=""):
     """
     Flattens the file system and returns a list of (path, size).
@@ -88,5 +81,16 @@ def flatten_fs(node, path=""):
     return flattened
 
 
+def sort_by_size(node, reverse=True):
+    """
+    Returns all (path, size) pairs in the file system sorted by size.
+    """
+    return sorted(flatten_fs(node), key=lambda x: x[1], reverse=reverse)
 
 
+def filter_by_size(node, min_size=0, max_size=float('inf')):
+    """
+    Returns (path, size) pairs for files/directories whose size is within
+    the given range (inclusive).
+    """
+    return [(p, s) for p, s in flatten_fs(node) if min_size <= s <= max_size]

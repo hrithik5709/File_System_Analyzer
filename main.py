@@ -1,4 +1,5 @@
 import os
+import sys
 from fs_builder import build_fs_tree
 from fs_utils import (
     print_tree,
@@ -6,13 +7,37 @@ from fs_utils import (
     search_file,
     filter_by_size,
     sort_by_size,
-    flatten_fs
+    flatten_fs,
+    format_size,
 )
 
-def main():
-    root_path = input("📂 Enter the path to the root directory: ").strip()
 
-    if not os.path.exists(root_path):
+def read_int(prompt, default=None):
+    """
+    Prompts until the user enters a non-negative integer.
+    An empty answer returns the default, if one is given.
+    """
+    while True:
+        raw = input(prompt).strip()
+        if not raw and default is not None:
+            return default
+        if raw.isdigit():
+            return int(raw)
+        print("⚠️ Please enter a non-negative whole number.")
+
+
+def print_entries(entries):
+    for path, size in entries:
+        print(f"{path}: {format_size(size)} ({size} bytes)")
+
+
+def main():
+    if len(sys.argv) > 1:
+        root_path = sys.argv[1]
+    else:
+        root_path = input("📂 Enter the path to the root directory: ").strip()
+
+    if not os.path.isdir(root_path):
         print("❌ Invalid path! Please enter a valid directory.")
         return
 
@@ -41,35 +66,37 @@ def main():
         if choice == '1':
             print_tree(root)
         elif choice == '2':
-            print(f"\n📏 Total Size of '{root.name}': {root.get_size()} bytes")
+            print(f"\n📏 Total Size of '{root.name}': {format_size(root.get_size())} ({root.get_size()} bytes)")
         elif choice == '3':
             name = input("🔍 Enter the name to search: ").strip()
             result = search_file(root, name)
             if result:
-                print(f"✅ Found: {result}")
+                print(f"✅ Found {len(result)} match(es):")
+                for path in result:
+                    print(f"  {path}")
             else:
                 print("❌ Not found.")
         elif choice == '4':
-            min_size = int(input("Enter minimum size (bytes): "))
-            max_size = int(input("Enter maximum size (bytes): "))
+            min_size = read_int("Enter minimum size (bytes): ")
+            max_size = read_int("Enter maximum size (bytes, blank for no limit): ", default=float('inf'))
+            if min_size > max_size:
+                print("⚠️ Minimum size cannot be greater than maximum size.")
+                continue
             results = filter_by_size(root, min_size, max_size)
             if results:
                 print("\n🧮 Filtered Results:")
-                for name, size in results:
-                    print(f"{name}: {size} bytes")
+                print_entries(results)
             else:
                 print("❌ No matching files/directories found.")
         elif choice == '5':
-            order = input("Sort in descending order? (y/n): ").lower()
-            results = sort_by_size(root, reverse=(order == 'y'))
+            order = input("Sort in descending order? (Y/n): ").strip().lower()
+            results = sort_by_size(root, reverse=(order != 'n'))
             print("\n📂 Sorted Results:")
-            for name, size in results:
-                print(f"{name}: {size} bytes")
+            print_entries(results)
         elif choice == '6':
             flattened = flatten_fs(root)
             print("\n📝 Flattened View:")
-            for path, size in flattened:
-                print(f"{path} - {size} bytes")
+            print_entries(flattened)
         elif choice == '0':
             print("👋 Exiting... Goodbye!")
             break
