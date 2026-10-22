@@ -12,13 +12,29 @@ def format_size(num_bytes):
         size /= 1024
 
 
-def print_tree(node, indent=""):
+def walk(node):
+    """
+    Iterative pre-order traversal. Yields (path, depth, node) for every node,
+    parents before children and children in order.
+
+    Uses an explicit stack instead of recursion, so tree depth is limited
+    only by memory, not by Python's recursion limit.
+    """
+    stack = [(node, node.name, 0)]
+    while stack:
+        n, path, depth = stack.pop()
+        yield path, depth, n
+        # Pushed in reverse so the first child is popped (visited) first.
+        for child in reversed(n.children):
+            stack.append((child, os.path.join(path, child.name), depth + 1))
+
+
+def print_tree(node):
     """
     Pretty print the tree with sizes.
     """
-    print(f"{indent}{node}")
-    for child in node.children:
-        print_tree(child, indent + "  ")
+    for _, depth, n in walk(node):
+        print(f"{'  ' * depth}{n}")
 
 
 def validate_fs_tree(node):
@@ -28,8 +44,10 @@ def validate_fs_tree(node):
     Raises ValueError if something is wrong.
     """
     seen = set()
+    stack = [node]
 
-    def dfs(n):
+    while stack:
+        n = stack.pop()
         if id(n) in seen:
             raise ValueError("Cycle detected in file system!")
         seen.add(id(n))
@@ -39,46 +57,24 @@ def validate_fs_tree(node):
             if n.children:
                 raise ValueError(f"File has children: {n.name}")
         else:
-            for child in n.children:
-                dfs(child)
             if n.size != sum(child.size for child in n.children):
                 raise ValueError(f"Size mismatch for directory: {n.name}")
+            stack.extend(n.children)
 
-    dfs(node)
 
-
-def search_file(node, name, path="", results=None):
+def search_file(node, name):
     """
-    DFS search for file/directory with the given name.
+    Search for files/directories with the given name.
     Returns list of paths where the name matches.
     """
-    if results is None:
-        results = []
-
-    curr_path = os.path.join(path, node.name)
-
-    if node.name == name:
-        results.append(curr_path)
-
-    for child in node.children:
-        search_file(child, name, curr_path, results)
-
-    return results
+    return [path for path, _, n in walk(node) if n.name == name]
 
 
-def flatten_fs(node, path=""):
+def flatten_fs(node):
     """
     Flattens the file system and returns a list of (path, size).
     """
-    flattened = []
-    current_path = os.path.join(path, node.name)
-
-    flattened.append((current_path, node.get_size()))
-
-    for child in node.children:
-        flattened.extend(flatten_fs(child, current_path))
-
-    return flattened
+    return [(path, n.get_size()) for path, _, n in walk(node)]
 
 
 def sort_by_size(node, reverse=True):

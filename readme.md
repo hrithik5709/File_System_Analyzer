@@ -42,8 +42,12 @@ test/           pytest test suite
 
 **Size aggregation in O(n).** `build_fs_tree` builds the tree depth-first and attaches each child only once its subtree is complete (post-order). `add_child` adds the child's size to the parent, so each directory's total is computed exactly once during the scan. After that, `get_size()` is O(1), so sorting, filtering and printing are not slowed down by recomputing subtree sizes.
 
+**No recursion limit.** Every traversal uses an explicit stack instead of recursion, so a very deep directory tree can't crash with `RecursionError`. Python allows about 1,000 nested calls by default. The builder pushes each directory twice: once to expand its children, and once more to attach it to its parent after its whole subtree is done. That second visit keeps the post-order size aggregation. All the read-only operations (print, search, flatten, sort, filter) share one iterative pre-order `walk()` generator.
+
+**Hard links counted once.** A hard-linked file has several names but its data is stored on disk only once. The builder tracks `(st_dev, st_ino)` pairs it has already seen. The first name found carries the bytes, and any later name stays in the tree marked `[hard link, counted once]` with 0 bytes. This matches how `du` reports disk usage.
+
 **Robustness.**
-- Symlinks are recorded but never followed, so symlink loops can't cause infinite recursion. Broken links don't crash the scan.
+- Symlinks are recorded but never followed, so symlink loops can't send the scan into an endless loop. Broken links don't crash the scan.
 - Entries that can't be read (permission denied, deleted mid-scan) are skipped instead of aborting the whole scan.
 - Children are sorted by name, so output is the same on every run.
 
@@ -58,10 +62,9 @@ pip install -r requirements.txt
 python3 -m pytest test
 ```
 
-The tests build real directory trees in a temporary folder. They cover size aggregation, search, sort and filter, edge cases (trailing slashes, missing paths, symlink loops, broken links) and validation failures.
+The tests build real directory trees in a temporary folder. They cover size aggregation, search, sort and filter, and edge cases: trailing slashes, missing paths, symlink loops, broken links, hard links, and trees deeper than Python's recursion limit. They also cover validation failures.
 
 ## Possible extensions
 
-- Very deep trees could hit Python's recursion limit. An iterative traversal with an explicit stack would remove that limit.
 - Scan large directories concurrently.
 - Add a non-interactive mode (e.g. `--top 10`) for scripting.
