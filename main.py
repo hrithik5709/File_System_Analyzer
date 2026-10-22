@@ -1,5 +1,5 @@
+import argparse
 import os
-import sys
 from fs_builder import build_fs_tree
 from fs_utils import (
     print_tree,
@@ -31,18 +31,24 @@ def print_entries(entries):
         print(f"{path}: {format_size(size)} ({size} bytes)")
 
 
+def parse_args():
+    parser = argparse.ArgumentParser(description="Analyze a directory tree.")
+    parser.add_argument("path", nargs="?", help="directory to scan (prompted if omitted)")
+    parser.add_argument("--cross-mounts", action="store_true",
+                        help="also scan other filesystems mounted inside the directory")
+    return parser.parse_args()
+
+
 def main():
-    if len(sys.argv) > 1:
-        root_path = sys.argv[1]
-    else:
-        root_path = input("📂 Enter the path to the root directory: ").strip()
+    args = parse_args()
+    root_path = args.path or input("📂 Enter the path to the root directory: ").strip()
 
     if not os.path.isdir(root_path):
         print("❌ Invalid path! Please enter a valid directory.")
         return
 
     print("\n📦 Building File System Tree...")
-    root = build_fs_tree(root_path)
+    root = build_fs_tree(root_path, one_file_system=not args.cross_mounts)
 
     print("\n✅ Validating File System Tree...")
     try:
@@ -67,6 +73,7 @@ def main():
             print_tree(root)
         elif choice == '2':
             print(f"\n📏 Total Size of '{root.name}': {format_size(root.get_size())} ({root.get_size()} bytes)")
+            print(f"💽 Disk Usage: {format_size(root.disk_usage)} ({root.disk_usage} bytes)")
         elif choice == '3':
             name = input("🔍 Enter the name to search: ").strip()
             result = search_file(root, name)

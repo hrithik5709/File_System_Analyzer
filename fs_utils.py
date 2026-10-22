@@ -40,7 +40,8 @@ def print_tree(node):
 def validate_fs_tree(node):
     """
     Validates the file system tree: no cycles, no negative sizes, files have
-    no children, and every directory's size equals the sum of its children.
+    no children, every directory's size equals the sum of its children, and
+    its disk usage is at least theirs (it adds the directory's own blocks).
     Raises ValueError if something is wrong.
     """
     seen = set()
@@ -51,7 +52,7 @@ def validate_fs_tree(node):
         if id(n) in seen:
             raise ValueError("Cycle detected in file system!")
         seen.add(id(n))
-        if n.size < 0:
+        if n.size < 0 or n.disk_usage < 0:
             raise ValueError(f"Invalid size for: {n.name}")
         if n.is_file:
             if n.children:
@@ -59,6 +60,8 @@ def validate_fs_tree(node):
         else:
             if n.size != sum(child.size for child in n.children):
                 raise ValueError(f"Size mismatch for directory: {n.name}")
+            if n.disk_usage < sum(child.disk_usage for child in n.children):
+                raise ValueError(f"Disk usage mismatch for directory: {n.name}")
             stack.extend(n.children)
 
 

@@ -1,10 +1,13 @@
 import os
+import shutil
+import subprocess
 import sys
 
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+import fs_builder
 from fs_builder import build_fs_tree
 from fs_node import FileNode
 from fs_utils import (
@@ -90,6 +93,63 @@ def test_hard_links_are_counted_once(sample_dir):
     assert (extra.size, extra.is_hardlink) == (20, False)
     assert (first.size, first.is_hardlink) == (0, True)
     validate_fs_tree(root)
+
+
+@pytest.mark.skipif(not hasattr(os, "link"), reason="hard links unsupported")
+def test_hard_link_bytes_go_to_first_name_in_directory(sample_dir):
+    os.link(sample_dir / "docs" / "b.txt", sample_dir / "docs" / "c.txt")
+    docs = find(build_fs_tree(str(sample_dir)), "docs")
+    b, c = docs.children[0], docs.children[1]
+    assert (b.name, b.size, b.is_hardlink) == ("b.txt", 20, False)
+    assert (c.name, c.size, c.is_hardlink) == ("c.txt", 0, True)
+
+
+def test_sparse_file_reports_allocated_blocks(tmp_path):
+    sparse = tmp_path / "sparse.img"
+    with open(sparse, "wb") as f:
+        f.seek(100 * 1024 * 1024)      # a 100 MB hole that is never written
+        f.write(b"x")
+    if os.stat(sparse).st_blocks * 512 >= 100 * 1024 * 1024:
+        pytest.skip("filesystem does not support sparse files")
+
+    node = find(build_fs_tree(str(tmp_path)), "sparse.img")
+    assert node.size == 100 * 1024 * 1024 + 1
+    assert node.disk_usage < 1024 * 1024
+
+
+def test_small_file_uses_a_whole_block(sample_dir):
+    node = find(build_fs_tree(str(sample_dir)), "a.txt")
+    assert node.size == 10
+    assert node.disk_usage == os.stat(sample_dir / "a.txt").st_blocks * 512
+
+
+@pytest.mark.skipif(shutil.which("du") is None, reason="du not available")
+def test_disk_usage_matches_du(sample_dir):
+    os.link(sample_dir / "docs" / "b.txt", sample_dir / "b_link.txt")
+    out = subprocess.run(["du", "-sxB1", str(sample_dir)],
+                         capture_output=True, text=True, check=True).stdout
+    assert build_fs_tree(str(sample_dir)).disk_usage == int(out.split()[0])
+
+
+def test_mount_points_are_recorded_but_not_scanned(sample_dir, monkeypatch):
+    # Pretend the root lives on another device, so every subdirectory
+    # looks like the top of a different mounted filesystem.
+    monkeypatch.setattr(fs_builder, "_device", lambda path: -1)
+    root = build_fs_tree(str(sample_dir))
+    docs = find(root, "docs")
+    assert docs.is_mount and docs.children == [] and docs.size == 0
+    assert root.get_size() == 10       # only root/a.txt is on "this" filesystem
+    validate_fs_tree(root)
+
+    root = build_fs_tree(str(sample_dir), one_file_system=False)
+    assert not find(root, "docs").is_mount
+    assert root.get_size() == 60
+
+
+@pytest.mark.skipif(not os.path.ismount("/dev/shm"), reason="needs a real mount under /dev")
+def test_real_mount_point_is_detected():
+    root = build_fs_tree("/dev")
+    assert find(root, "shm").is_mount
 
 
 def test_deep_directory_does_not_hit_recursion_limit(tmp_path):
